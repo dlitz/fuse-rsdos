@@ -53,6 +53,10 @@ class Geometry:
     heads = 1
 
     @property
+    def bytes_per_granule(self):
+        return self.sectors_per_granule * self.bytes_per_sector
+
+    @property
     def max_filesystem_sectors(self):
         return self.sectors_per_granule * self.max_granules + self.sectors_per_track
 
@@ -94,19 +98,46 @@ class DirectoryEntry:
     _reserved:bytes
     free:bool
     null:bool
+    geom:Geometry
+
+    def clear(self):
+        self.filename = b'\xff' * 8
+        self.extension = b'\xff' * 3
+        self.filetype = 0xff
+        self.ascii_flag = 0xff
+        self.first_granule = 0xff
+        self.last_sector_bytes_used = 0xffff
+        self._reserved = b'\xff' * 16
+        self.free = True
+        self.null = False
 
     @classmethod
     def fromraw(cls, n, raw, *, geom):
         filename, extension, filetype, ascii_flag, first_granule, last_sector_bytes_used, _reserved = unpack("!8s3sBBBH16s", raw)
         null = set(raw) == { 0 }
         free = filename[0] == 0 or set(filename) == { 0xff }
-        return cls(n, filename, extension, filetype, ascii_flag, first_granule, last_sector_bytes_used, _reserved, free, null)
+        return cls(n, filename, extension, filetype, ascii_flag, first_granule, last_sector_bytes_used, _reserved, free, null, geom=geom)
+
+    def toraw(self):
+        return pack('!8s3sBBBH16s',
+            self.filename, self.extension, self.filetype, self.ascii_flag, self.first_granule, self.last_sector_bytes_used, self._reserved)
 
     def pretty_filename_bytes(self):
         return self.filename.rstrip(b' ') + b'.' + self.extension.rstrip(b' ')
 
     def pretty_filename(self):
         return self.pretty_filename_bytes().decode('tandycoco-hires', 'surrogateescape')
+
+    def set_pretty_filename(self, filename):
+        fn, ext = filename.encode('tandycoco-hires', 'surrogateescape').split('.')
+        assert len(fn) <= 8
+        assert len(ext) <= 3
+        fn += b'\x20' * -(len(fn) % -8)
+        ext += b'\x20' * -(len(fn) % -8)
+        assert len(fn) == 8
+        assert len(ext) == 3
+        self.filename = fn
+        self.extension = ext
 
 @dataclass
 class GranuleInfo:
