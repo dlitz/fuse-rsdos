@@ -37,6 +37,9 @@ from .encodings import tandycoco_hires
 # = 1,746 sectors
 # * 256 bytes/sector
 # = 446,976 bytes
+#
+# XXX This doesn't make sense for larger disks, though.
+# TODO: Find out what they're doing.
 
 class Geometry:
     sectors_per_track = 18
@@ -47,7 +50,7 @@ class Geometry:
     directory_sectors = 9   # Sectors #3 to #11
     max_granules = 192
     directory_entry_size = 32
-    sides = 1
+    heads = 1
 
     @property
     def max_filesystem_sectors(self):
@@ -182,11 +185,15 @@ class FilesystemStats:
 
 class RSDOSFilesystem:
     def __init__(self, io):
+        # lock for single-threaded operations
+        self.lock = threading.Lock()
+
         self.io = io
         self.geom = Geometry()
 
-        # lock for single-threaded operations
-        self.lock = threading.Lock()
+        size = self._getsize64()
+        if 368640 < size <= 737280:
+            self.geom.heads = 2
 
     def _getsize64(self):
         try:
@@ -211,7 +218,7 @@ class RSDOSFilesystem:
         if extraneous_bytes:
             warnings.warn(f"filesystem is not an even multiple of the sector size {extraneous_bytes:d} bytes will be ignored", OddSizeWarning)
         n_sectors = n // self.geom.bytes_per_sector
-        if n_sectors < (self.geom.directory_track + 1) * self.geom.sectors_per_track:
+        if n_sectors < (self.geom.directory_track + 1) * self.geom.sectors_per_track * self.geom.heads:
             raise FilesystemFatalError(f"filesystem is smaller than the minimum size")
 
         return n_sectors
@@ -229,15 +236,17 @@ class RSDOSFilesystem:
         end = start + self.geom.bytes_per_sector * sector_count
         return (start, end)
 
-    def sector_range(self, cyl, secnr, sector_count=1):
+    def sector_range(self, cyl, head, secnr, sector_count=1):
         # This uses 1-based sector numbering (just like the on-disk format)
         if not 0 <= cyl:
             raise IndexError("cylinder number out of range")
-        if not 1 <= secnr <= self.geom.sectors_per_track:
-            raise IndexError("sector number out of range")
+        if not 1 <= secnr <= self.geom.sectors_per_track * self.geom.heads:
+            raise IndexError(f"sector number out of range: {secnr=}")
         if not 0 <= sector_count <= self.geom.sectors_per_track - (secnr-1):
             raise IndexError("sector count out of range")
-        return self.sector_range_linear(cyl * self.geom.sectors_per_track + (secnr-1), sector_count)
+        if not 0 <= head < self.geom.heads:
+            raise IndexError("head out of range")
+        return self.sector_range_linear(cyl * self.geom.sectors_per_track * self.geom.heads + self.geom.sectors_per_track * head + (secnr-1), sector_count)
 
     def granule_range(self, granule):
         sec_start, sec_end = self.granule_range_sectors(granule)
@@ -248,18 +257,19 @@ class RSDOSFilesystem:
     def granule_range_sectors(self, granule):
         sec_start = granule * self.geom.sectors_per_granule
         sec_end = (granule + 1) * self.geom.sectors_per_granule
-        if sec_start >= self.geom.directory_track * self.geom.sectors_per_track:
-            # Skip over the Directory track (track 17)
+        if sec_start >= self.geom.directory_track * self.geom.sectors_per_track * self.geom.heads:
+            # Skip over the Directory track (track 17, head 0)
+            # XXX is this correct?   
             sec_start += self.geom.sectors_per_track
             sec_end += self.geom.sectors_per_track
         return (sec_start, sec_end)
 
     def directory_range(self):
-        # Track 17, sectors 3 - 11 (9 sectors)
-        return self.sector_range(self.geom.directory_track, 3, self.geom.directory_sectors)
+        # Track 17, side 0, sectors 3 - 11 (9 sectors)
+        return self.sector_range(self.geom.directory_track, 0, 3, self.geom.directory_sectors)
 
     def directory_entry_range(self, n):
-        d_start, d_end = self.sector_range(self.geom.directory_track, 3, self.geom.directory_sectors)
+        d_start, d_end = self.sector_range(self.geom.directory_track, 0, 3, self.geom.directory_sectors)
         dent_start = d_start + n * self.geom.directory_entry_size
         dent_end = dent_start + self.geom.directory_entry_size
         if not d_start <= dent_start < d_end or not d_start <= dent_end <= d_end:
@@ -267,7 +277,7 @@ class RSDOSFilesystem:
         return (dent_start, dent_end)
 
     def granule_map_range(self):
-        start = self.sector_range(self.geom.directory_track, 2)[0]
+        start = self.sector_range(self.geom.directory_track, 0, 2)[0]
         end = start + min(self.granule_count(), self.geom.max_granules)
         return (start, end)
 
@@ -402,7 +412,7 @@ class RSDOSFilesystem:
             total_direntry_count=d_total,
             free_direntry_count=d_free,
             used_direntry_count=d_used,
-            size_in_granules=ceildiv(self.sector_count(), sectors_per_granule),
+            size_in_granules=ceildiv(self.sector_count(), self.geom.sectors_per_granule),
             sectors_per_track=self.geom.sectors_per_track,
             sectors_per_granule=self.geom.sectors_per_granule,
             bytes_per_sector=self.geom.bytes_per_sector,
