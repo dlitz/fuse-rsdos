@@ -6,6 +6,10 @@
 
 from struct import unpack
 from .cocobasic_tokens import op_tokens, func_tokens
+import warnings
+
+class ExtraJunkAtEOFWarning(Warning):
+    pass
 
 class CoCo3BasicReader:
 
@@ -55,6 +59,10 @@ class CoCo3BasicReader:
             raise EOFError
         (self.ptr_next_line,) = unpack('>H', h)
         if self.ptr_next_line == 0:  # end of program
+            #if self.read(1) != b'':
+            #    self.bytes_read -= 1
+            #    self.infile.seek(-1, 1)
+            #    warnings.warn("Extra junk at EOF", ExtraJunkAtEOFWarning)
             assert self.read(1) == b''
             assert self.bytes_read == self.header[1], (self.bytes_read, self.header)
             return None
