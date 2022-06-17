@@ -46,6 +46,7 @@ class CoCo3BasicReader:
     def iter_tokens(self):
         token = self.next_token()
         while token is not None:
+            #print(">>", token)
             yield token
             token = self.next_token()
 

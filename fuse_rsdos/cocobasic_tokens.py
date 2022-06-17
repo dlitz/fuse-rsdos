@@ -110,10 +110,16 @@ op_tokens = {
     0xe4: 'HSCREEN',
     0xe6: 'HCLS',
     0xe7: 'HCOLOR',
+    0xe8: 'HPAINT',
+    0xe9: 'HCIRCLE',
+    0xea: 'HLINE',
+    0xee: 'HPRINT',
     0xf0: 'BRK',
+    0xf1: 'LOCATE',
     0xf3: 'HSET',
     0xf6: 'CMP',
     0xf7: 'RGB',
+    0xf8: 'ATTR',
 }
 
 # Function tokens - all proceeded by 0xff to differentiate from operators
