@@ -197,7 +197,7 @@ Userspace RS-DOS (Disk Extended Color BASIC) filesystem.
         result = make_statvfs_result(
             f_bsize=fst.bytes_per_sector,
             f_frsize=fst.bytes_per_sector,
-            f_blocks=self.fs.sector_count(),
+            f_blocks=fst.total_granule_count * fst.sectors_per_granule,
             f_bfree=fst.free_granule_count * fst.sectors_per_granule,
             f_bavail=fst.free_granule_count * fst.sectors_per_granule,
             f_files=fst.total_direntry_count + self.INODE_USER_BASE - 1,
